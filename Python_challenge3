@@ -1,0 +1,123 @@
+import requests
+from datetime import datetime
+import time
+import csv
+import schedule
+count = 0  # 用于记录并判断是否第一次运行定时任务
+
+
+# 获取当天零点时间戳
+def time_h():
+    # 获取到当天的年月日
+    now = datetime.now().date()
+    # 将当天年月日转化为时间戳
+
+    now_time_stamps = int(time.mktime(now.timetuple()))
+    return now_time_stamps
+
+
+# 传入名字，页码
+def pathname(name, no):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (HTML, like Gecko) '
+                      'Chrome/106.0.0.0 '
+                      'Safari/537.36 '
+    }
+    url = 'http://nc.mofcom.gov.cn/jghq/priceList?'
+    data = {
+        # 页码
+        'pageNo': no,
+        'craftName': name,
+        'queryDateType': 0
+    }
+    response = requests.post(url=url, data=data, headers=headers)
+    responses = response.json()
+    response.close()
+    return responses
+
+
+# 创建一个品种的类
+class Variety:
+
+    def __init__(self, name):
+        self.name = name  # 名称
+        self.value = None  # 价格
+        self.time_str = None  # 时间
+        self.dress = None  # 市场
+        self.filename = self.name + '.csv'  # csv文件名
+
+    def variety(self):
+        re = 1
+        data_json = pathname(self.name, 1)
+        # 总页数
+        max_page = data_json['totalPageCount']
+        min_page = 0
+        size_for = -1
+        # 如果是第一次运行，将从最后一页开始爬取，以保证存储的数据按照时间排序
+        # 如果不是第一次运行，将从第一页开始爬取，直到出现之前日期的数据便结束
+
+        if count != 0:
+            min_page = data_json['totalPageCount'] + 1
+            max_page = 1
+            size_for = 1
+        for b in range(max_page, min_page, size_for):
+            data_json = pathname(self.name, b)
+            for i in range(len(data_json['result']) - 1, -1, -1):
+                # 将价格和单位拼接
+                self.value = str(data_json['result'][i]['AG_PRICE']) + str(data_json['result'][i]['C_UNIT'])
+                # 将时间戳转化为日期
+                ltime = time.localtime(int(data_json['result'][i]['PROMULGATE_DATE']) / 1000)
+                self.time_str = str(time.strftime("%Y-%m-%d", ltime))
+                self.dress = data_json['result'][i]['EUD_NAME']
+                # 第一次运行则爬取且保存全部数据  非第一次运行则只保存当天数据
+                if count == 0:  # 第一次运行则爬取且保存全部数据
+                    print("%s\t%s\t%s\t%s" % (self.time_str, self.name, self.value, self.dress))
+                    self.save_data()
+                else:  # 费第一次运行则只保存当天数据
+                    if int(time_h()) < (int(data_json['result'][i]['PROMULGATE_DATE']) / 1000):
+                        print("%s\t%s\t%s\t%s" % (self.time_str, self.name, self.value, self.dress))
+                        self.save_data()
+
+                    else:
+                        re = 0
+            if re == 0:  # 在后续不是第一次运行的情况下，如果爬取到不属于当天的时间则停止爬取re=0
+                return
+
+    # 将爬取的不同种类的数据保存到指定文件
+    def save_data(self):
+        with open(self.filename, "a", newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow([self.time_str, self.name, self.value, self.dress])
+            csvfile.close()
+
+    def __str__(self):
+        print(self.name)
+
+    def __del__(self):
+        print("%s:[%s]爬取结束" % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time())), self.name))
+
+
+#  '仔猪', '肥猪', '肥膘', '猪颈背肌肉', '猪前腿肌肉', '猪大排肌肉', '猪后腿肌肉', '猪心', '猪肝', '猪肚', '猪肺', '猪大肠', '猪皮'
+pig_all = ['白条猪', '仔猪', '肥猪', '肥膘', '猪颈背肌肉', '猪前腿肌肉', '猪大排肌肉', '猪后腿肌肉', '猪心', '猪肝',
+           '猪肚', '猪肺', '猪大肠', '猪皮']
+
+
+# 定时任务所执行的方法
+def run_xv():
+    global count
+    for i in pig_all:
+        zhu = Variety(i)
+        zhu.variety()
+        del zhu
+    count += 1
+
+
+schedule.every().day.at("17:30:00").do(run_xv)  # schedule.every(1).minutes.do(run_xv)
+
+# 每日定时任务
+while True:
+    schedule.run_pending()
+    try:
+        time.sleep(50)
+    except KeyboardInterrupt:
+        print("end.....")
