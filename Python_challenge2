@@ -1,0 +1,83 @@
+import requests
+import time
+import csv
+import sched
+from datetime import datetime
+
+global count
+count = 1
+schedule = sched.scheduler(time.time, time.sleep)
+
+
+def time_h():
+    # 获取到当天的年月日
+    now = datetime.now().date()
+    # 将当天年月日转化为时间戳
+    now_time_stamps = int(time.mktime(now.timetuple()))
+    return now_time_stamps
+
+
+# 传入需要爬取的页码
+def pak(j):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/106.0.0.0 '
+                      'Safari/537.36 '
+    }
+    url = 'http://nc.mofcom.gov.cn/jghq/priceList?'
+    data = {
+        # 页码
+        'pageNo': j,
+        'craftName': '猪肉(白条猪)',
+        'queryDateType': 0
+    }
+    response = requests.post(url=url, data=data, headers=headers)
+    response.close()
+    # 返回爬取到的json串
+    return response.json()
+
+
+def print_time():
+    # print(datetime.now().strftime("%y-%m-%d %H:%M:%S"))
+    global count
+    j = (pak(1)['totalCount'] // 10) + 1
+    time_hhh = time_h()
+    print("%s" % datetime.now().strftime("%y-%m-%d %H:%M:%S"), end="")
+    with open("./Pig_data.csv", "a", newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        while j > 0:
+            dic_response = pak(j)
+            # PROMULGATE_DATE
+            # 获取最后一页数据个数totalCount
+            if j == 32:
+                p = dic_response['totalCount'] % 10
+            else:
+                p = 10
+            j -= 1
+            i = 0
+            while i < p:
+                ltime = time.localtime(dic_response["result"][i]['PROMULGATE_DATE'] / 1000)
+                time_str = str(time.strftime(" %Y-%m-%d", ltime))
+                aaa = str(dic_response["result"][i]['AG_PRICE']) + "元/公斤"
+                bbb = dic_response["result"][i]['CRAFT_NAME']
+                ccc = dic_response["result"][i]['EUD_NAME']
+                if count == 0:
+                    writer.writerow([time_str, aaa, bbb, ccc])
+                if count > 0 and int(time_hhh) < int((dic_response["result"][i]['PROMULGATE_DATE'] / 1000)):
+                    writer.writerow([time_str, aaa, bbb, ccc])
+                i += 1
+            dic_response['totalCount'] = (dic_response['totalCount'] * 10) % 11
+        csvfile.close()
+        print('\t%d次爬取结束\n\n' % (count + 1))
+
+
+def vcvars(aaaa):
+    while True:
+        global count
+        schedule.enter(aaaa, 0, print_time, ())
+        schedule.run()
+        count += 1
+
+
+print_time()
+vcvars(86400)
